@@ -46,12 +46,11 @@ func (p NoProxyProcessor) ProcessHost(host string) bool {
 	stringPass := false
 
 	rePass = p.reProcessor.TestHost(host)
-	stringPass = p.stringProcessor.TestHost(host)
-
 	if rePass {
 		return true
 	}
 
+	stringPass = p.stringProcessor.TestHost(host)
 	if stringPass {
 		return true
 	}
@@ -80,12 +79,14 @@ func (p reProcessor) TestHost(host string) bool {
 type stringProcessor struct{}
 
 func (p stringProcessor) TestHost(host string) bool {
-	result := false
-	if _, ok := NoProxyStorage.hostsList[strings.ToLower(host)]; ok {
-		result = true
+	for thisHost, _ := range NoProxyStorage.hostsList {
+		print(thisHost)
+		if host == thisHost {
+			log.Infof("matched static noproxy addr = %s", thisHost)
+			return true
+		}
 	}
-	log.Infof("matched static noproxy addr = %s", host)
-	return result
+	return false
 }
 
 func init() {
@@ -96,10 +97,6 @@ func init() {
 	NoProxyStorage = NoProxyProcessor{}
 	NoProxyStorage.reProcessor = new(reProcessor)
 	NoProxyStorage.stringProcessor = new(stringProcessor)
-
-	if NoProxy != "" {
-		processNoproxyList(NoProxy)
-	}
 }
 
 var ProxyUser = os.Getenv("GONTLM_USER")
@@ -109,6 +106,12 @@ var ProxyOverrides map[string]*url.URL
 var ProxyDialerCacheTimeout = 60 * time.Minute
 
 func Run() {
+	os.Unsetenv("http_proxy")
+	os.Unsetenv("https_proxy")
+	os.Unsetenv("no_proxy")
+	os.Unsetenv("HTTP_PROXY")
+	os.Unsetenv("HTTPS_PROXY")
+	os.Unsetenv("NO_PROXY")
 	proxy := goproxy.NewProxyHttpServer()
 	//
 	// Log Configuration
@@ -132,6 +135,11 @@ func Run() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	if NoProxy != "" {
+		processNoproxyList(NoProxy)
+	}
+
 	log.Infof("Listening on: %s", bind.Host)
 
 	var proxyUrl *url.URL
@@ -175,8 +183,15 @@ func Run() {
 
 			for _, host := range hosts {
 				if NoProxyStorage.ProcessHost(strings.ToLower(host)) {
-					log.Infof("matched local subnet rule")
-					return directDialer, nil
+					u, _ := url.Parse("")
+					pxyCtx := proxyplease.NewDialContext(proxyplease.Proxy{
+						URL:       u,
+						Username:  ProxyUser,
+						Password:  ProxyPass,
+						Domain:    ProxyDomain,
+						TargetURL: &url.URL{Host: addr, Scheme: scheme},
+					})
+					return pxyCtx, nil
 				}
 			}
 
@@ -399,7 +414,8 @@ func processNoproxyList(s string) {
 	hosts := make(map[string]NoProxyHost)
 	reList := []*regexp.Regexp{}
 	items := strings.Split(s, " ")
-	fmt.Println(items)
+	log.Infof("noproxy listing:")
+	log.Infof(fmt.Sprintf("%v", items))
 	for _, item := range items {
 		if strings.HasPrefix(item, "re:") {
 			_, rule, ok := strings.Cut(item, "re:")
