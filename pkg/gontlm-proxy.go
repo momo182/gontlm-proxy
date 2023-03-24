@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -398,6 +399,7 @@ func processNoproxyList(s string) {
 	hosts := make(map[string]NoProxyHost)
 	reList := []*regexp.Regexp{}
 	items := strings.Split(s, " ")
+	fmt.Println(items)
 	for _, item := range items {
 		if strings.HasPrefix(item, "re:") {
 			_, rule, ok := strings.Cut(item, "re:")
