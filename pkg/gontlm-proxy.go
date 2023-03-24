@@ -28,13 +28,79 @@ import (
 
 var ProxyBind string
 var ProxyServer string
+var NoProxy string
+var NoProxyStorage NoProxyProcessor
 var ProxyVerbose bool
 var ProxyContext context.Context
+
+type NoProxyTester interface {
+	TestHost(s string) bool
+}
+
+type NoProxyProcessor struct {
+	reProcessor     NoProxyTester
+	stringProcessor NoProxyTester
+	hostsList       map[string]NoProxyHost
+	hostsRe         []*regexp.Regexp
+}
+
+func (p NoProxyProcessor) ProcessHost(host string) bool {
+	rePass := false
+	stringPass := false
+
+	rePass = p.reProcessor.TestHost(host)
+	stringPass = p.stringProcessor.TestHost(host)
+
+	if rePass {
+		return true
+	}
+
+	if stringPass {
+		return true
+	}
+
+	return false
+}
+
+type NoProxyHost struct {
+	host string
+	isRe bool
+}
+
+type reProcessor struct{}
+
+func (p reProcessor) TestHost(host string) bool {
+	result := false
+	for _, re := range NoProxyStorage.hostsRe {
+		if re.Match([]byte(host)) {
+			result = true
+			log.Infof("matched re: %s", re.String())
+		}
+	}
+	return result
+}
+
+type stringProcessor struct{}
+
+func (p stringProcessor) TestHost(host string) bool {
+	result := false
+	if _, ok := NoProxyStorage.hostsList[strings.ToLower(host)]; ok {
+		result = true
+	}
+	log.Infof("matched static noproxy addr = %s", host)
+	return result
+}
 
 func init() {
 	flag.StringVar(&ProxyBind, "bind", getEnv("GONTLM_BIND", "http://0.0.0.0:3128"), "IP & Port to bind to")
 	flag.StringVar(&ProxyServer, "proxy", getEnv("GONTLM_PROXY", ""), "Forwarding proxy server")
+	flag.StringVar(&NoProxy, "noproxy", getEnv("GONTLM_NOPROXY", ""), "No proxy list, supports 're:^10\\..*$' and 'some.host.com' as space separated list")
 	flag.BoolVar(&ProxyVerbose, "verbose", false, "Enable verbose logging")
+	NoProxyStorage = NoProxyProcessor{}
+
+	if NoProxy != "" {
+		processNoproxyList(NoProxy)
+	}
 }
 
 var ProxyUser = os.Getenv("GONTLM_USER")
@@ -106,11 +172,10 @@ func Run() {
 		}
 
 		dctx, err, _ := dialerCacheGroup.Do(cacheKey, func() (pxyCtx interface{}, err error) {
-			tensIp := "^10.*$"
 			hosts := []string{addr, strings.Split(addr, ":")[0]}
 
 			for _, host := range hosts {
-				if ok, _ := regexp.MatchString(tensIp, strings.ToLower(host)); ok {
+				if NoProxyStorage.ProcessHost(strings.ToLower(host)) {
 					log.Infof("matched local subnet rule")
 					return directDialer, nil
 				}
@@ -330,3 +395,23 @@ func Run() {
 // 		return websocket.IsWebSocketUpgrade(req)
 // 	}
 // }
+
+func processNoproxyList(s string) {
+	hosts := make(map[string]NoProxyHost)
+	reList := []*regexp.Regexp{}
+	items := strings.Split(s, " ")
+	for _, item := range items {
+		if strings.HasPrefix(item, "re:") {
+			_, rule, ok := strings.Cut(item, "re:")
+			if !ok {
+				log.Error("failed to cut re: from string")
+			}
+			re := regexp.MustCompile(rule)
+			reList = append(reList, re)
+		} else {
+			hosts[item] = NoProxyHost{host: item, isRe: false}
+		}
+	}
+	NoProxyStorage.hostsList = hosts
+	NoProxyStorage.hostsRe = reList
+}
