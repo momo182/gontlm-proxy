@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"regexp"
+
 	// "regexp"
 	"strings"
 	"time"
@@ -104,9 +106,18 @@ func Run() {
 		}
 
 		dctx, err, _ := dialerCacheGroup.Do(cacheKey, func() (pxyCtx interface{}, err error) {
+			tensIp := "^10.*$"
+			hosts := []string{addr, strings.Split(addr, ":")[0]}
+
+			for _, host := range hosts {
+				if ok, _ := regexp.MatchString(tensIp, strings.ToLower(host)); ok {
+					log.Infof("matched local subnet rule")
+					return directDialer, nil
+				}
+			}
+
 			if ProxyOverrides != nil {
 				var detected bool
-				hosts := []string{addr, strings.Split(addr, ":")[0]}
 				//
 				// Exact Match
 				//
