@@ -33,13 +33,9 @@ var NoProxyStorage NoProxyProcessor
 var ProxyVerbose bool
 var ProxyContext context.Context
 
-type NoProxyTester interface {
-	TestHost(s string) bool
-}
-
 type NoProxyProcessor struct {
-	reProcessor     NoProxyTester
-	stringProcessor NoProxyTester
+	reProcessor     *reProcessor
+	stringProcessor *stringProcessor
 	hostsList       map[string]NoProxyHost
 	hostsRe         []*regexp.Regexp
 }
@@ -97,6 +93,8 @@ func init() {
 	flag.StringVar(&NoProxy, "noproxy", getEnv("GONTLM_NOPROXY", ""), "No proxy list, supports 're:^10\\..*$' and 'some.host.com' as space separated list")
 	flag.BoolVar(&ProxyVerbose, "verbose", false, "Enable verbose logging")
 	NoProxyStorage = NoProxyProcessor{}
+	NoProxyStorage.reProcessor = new(reProcessor)
+	NoProxyStorage.stringProcessor = new(stringProcessor)
 
 	if NoProxy != "" {
 		processNoproxyList(NoProxy)
